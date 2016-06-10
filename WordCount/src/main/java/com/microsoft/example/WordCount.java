@@ -15,40 +15,34 @@ import backtype.storm.tuple.Values;
 
 import backtype.storm.metric.api.CountMetric;
 import backtype.storm.task.TopologyContext;
-import backtype.storm.task.OutputCollector;
 
+@SuppressWarnings("serial")
 public class WordCount extends BaseBasicBolt {
-    private static final Logger LOG = LoggerFactory.getLogger(WordCount.class);
+	private static final Logger LOG = LoggerFactory.getLogger(WordCount.class);
 
-    transient private CountMetric countMetric;
+	transient private CountMetric countMetric; // used for summary statistics
+												// reported in Nimbus UI console
 
-    Map<String, Integer> counts = new HashMap<String, Integer>();
+	Map<String, Integer> counts = new HashMap<String, Integer>();
 
-    @Override
-    public void execute(Tuple tuple, BasicOutputCollector collector) {
-      String word = tuple.getString(0);
-      Integer count = counts.get(word);
-      if (count == null) {
-        count = 0;
-      }
-      count++;
-      counts.put(word, count);
+	@Override
+	public void execute(Tuple tuple, BasicOutputCollector collector) {
+		countMetric.incr(); // log call
+		String word = tuple.getString(0);
+		int count = counts.merge(word, 1, (oldValue, increment) -> oldValue + increment);
 
-      countMetric.incr();
+		WordCountLogger.EVENT("WORD-COUNTER", word, count);
+		collector.emit(new Values(word, count));
+	}
 
-      WordCountLogger.EVENT("WORD-COUNTER", word, count);
+	@Override
+	public void declareOutputFields(OutputFieldsDeclarer declarer) {
+		declarer.declare(new Fields("word", "count"));
+	}
 
-      collector.emit(new Values(word, count));
-    }
-
-    @Override
-    public void declareOutputFields(OutputFieldsDeclarer declarer) {
-      declarer.declare(new Fields("word", "count"));
-    }
-
-    @Override
-    public void prepare(Map conf, TopologyContext context) {
-      countMetric = new CountMetric();
-      context.registerMetric("WORD_COUNT", countMetric, 60);
-    }
-  }
+	@Override
+	public void prepare(Map conf, TopologyContext context) {
+		countMetric = new CountMetric();
+		context.registerMetric("WORD_COUNT", countMetric, 60);
+	}
+}
